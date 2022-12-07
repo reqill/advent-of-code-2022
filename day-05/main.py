@@ -108,7 +108,7 @@ def sortStacksByInstructions(stacks:list, instructions:list):
         for i in range(numberOfItemsToMove):
             stacks[tsIDX][numberOfItemsInStackToTakeItemsFrom-numberOfItemsToMove + i] = " "*3
                 
-        # takenItems.reverse()
+        # takenItems.reverse() # uncomment it for dfirst part
             
         if len(takenItems) > 0:
             rowsToAdd = numberOfItemsToMove - numberOfFreeSpotsInStackToPlaceItemsTo
@@ -118,7 +118,7 @@ def sortStacksByInstructions(stacks:list, instructions:list):
                         stacks[i].append(" "*3)
             for i in range(len(takenItems)):
                 stacks[psIDX][numberOfItemsInStackToPlaceItemsTo + i] = takenItems[i]
-        # printStacks(f"Stacks during operation ({instruction}):", removeEmptyRows(stacks))
+        # printStacks(f"Stacks during operation ({instruction}):", removeEmptyRows(stacks)) # debugging
     return removeEmptyRows(stacks)
 
 def removeEmptyRows(stacks:list):
