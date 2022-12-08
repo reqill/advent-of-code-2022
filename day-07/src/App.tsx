@@ -1,150 +1,243 @@
 import "./App.css";
 import { input as inputTxt } from "./input";
+import { input1 } from "./input1";
 
-enum Type {
-  Directory = "directory",
-  File = "file",
+enum ItemType {
+  DIRECTORY = "DIRECTORY",
+  FILE = "FILE",
 }
 
-type FileType = { name: string; size: number; type: Type };
+type FileType = {
+  name: string;
+  size: number;
+  type: ItemType;
+  path: string;
+};
 type DirectoryType = {
-  files?: (FileType | DirectoryType)[];
-  parent?: DirectoryType;
+  files: (FileType | DirectoryType)[];
 } & FileType;
 
-const commands = /\$.*$/gm;
-const output = /^(?!$).*(?<!$).*$/gm;
 const directories = /^dir\s.*$/gm;
-const files = /^\d+\s.*\..*$/gm;
 const listFiles = /^\$ ls$/gm;
-const moveUp = /^\$ cd \.\.$/gm;
+const moveUp = "$ cd ..";
 const changeDirectory = /^\$ cd\s.*$/gm;
 
-const mapDirectoryStructure = (lines: string[]): DirectoryType => {
-  console.log("Statred mapping...");
+enum LineType {
+  DIRECTORY = "DIRECTORY",
+  FILE = "FILE",
+  LIST_FILES = "LIST_FILES",
+  MOVE_UP = "MOVE_UP",
+  CHANGE_DIRECTORY = "CHANGE_DIRECTORY",
+}
+
+const getLineType = (line: string): LineType => {
+  if (line.startsWith("dir ")) {
+    return LineType.DIRECTORY;
+  } else if (listFiles.test(line)) {
+    return LineType.LIST_FILES;
+  } else if (line === moveUp) {
+    return LineType.MOVE_UP;
+  } else if (line.startsWith("$ cd ") && !line.includes("..")) {
+    return LineType.CHANGE_DIRECTORY;
+  } else if (!line.startsWith("$")) {
+    return LineType.FILE;
+  }
+  throw new Error("Unknown line type: " + line);
+};
+
+const mapObjectLocationToPath = (
+  name: string,
+  parent: DirectoryType
+): string => {
+  return `${parent.path}/${name}`;
+};
+
+const getDirectoryFromPath = (
+  childPath: string,
+  root: DirectoryType,
+  getParent = false
+): DirectoryType => {
+  let pathParts = childPath.split("/");
+  if (getParent) {
+    pathParts = pathParts.slice(0, pathParts.length - 1);
+  }
+
+  let currentDirectory = root;
+
+  for (const path of pathParts) {
+    if (path === "root") continue;
+
+    const currentDirectoryFile = currentDirectory.files.find(
+      (file) => file.name === path && file.type === ItemType.DIRECTORY
+    );
+
+    if (currentDirectoryFile) {
+      currentDirectory = currentDirectoryFile as DirectoryType;
+    } else {
+      console.error(root);
+      throw new Error(
+        `Path does not point to a directory ${path} || ${pathParts} \n${JSON.stringify(
+          currentDirectory,
+          null,
+          " "
+        )}\n${JSON.stringify(currentDirectoryFile, null, " ")}`
+      );
+    }
+  }
+
+  return currentDirectory;
+};
+
+const mapDirectoryStructure = (input: string, debug = false): DirectoryType => {
   const root: DirectoryType = {
-    type: Type.Directory,
     name: "root",
     size: 0,
+    type: ItemType.DIRECTORY,
+    path: "root",
     files: [],
   };
   let currentDirectory = root;
-  let currentLine = 1;
+  const lines = input.split("\n");
 
-  while (currentLine < lines.length) {
-    const line = lines[currentLine];
-    const isCommand = line.match(commands);
-    const isOutput = line.match(output);
-
-    console.warn(`Line ${currentLine} out of ${lines.length}`);
-    console.log(line);
-
-    if (isCommand) {
-      const isListFiles = line.match(listFiles);
-      const isMoveUp = line.match(moveUp);
-      const isChangeDirectory = line.match(changeDirectory);
-
-      if (isListFiles) {
-        console.log("Listing files in directory", currentDirectory);
-        currentLine++;
-        continue;
-      } else if (isMoveUp) {
-        currentDirectory = currentDirectory.parent!;
-        console.log("Moving up to directory", currentDirectory);
-
-        currentLine++;
-        continue;
-      } else if (isChangeDirectory) {
-        const where = line.split(" ")[2]!;
-        if (currentDirectory.files) {
-          currentDirectory = currentDirectory.files.find(
-            (dir: any) => dir.name === where
-          )!;
-        }
-        console.log("Changing directory to", currentDirectory, where);
-        currentLine++;
-        continue;
-      }
-
-      currentLine++;
-      continue;
-    } else if (isOutput) {
-      const isDirectory = line.match(directories);
-      const isFile = line.match(files);
-
-      if (isDirectory) {
-        const name = line.split(" ")[1]!;
-        const directory: DirectoryType = {
-          type: Type.Directory,
-          name,
-          size: 0,
-          files: [],
-          parent: currentDirectory,
-        };
-        // push new directory if it doesn't exist
-        if (
-          !currentDirectory.files?.some((file) => file.name === directory.name)
-        ) {
-          currentDirectory.files?.push(directory);
-        }
-
-        currentLine++;
-        continue;
-      } else if (isFile) {
-        const size = Number(line.split(" ")[0])!;
-        const name = line.split(" ")[1]!;
-        const file: FileType = { type: Type.File, name, size };
-
-        if (currentDirectory.files) {
-          currentDirectory.files!.push(file);
-        }
-        currentDirectory.size += size;
-
-        currentLine++;
-        continue;
-      }
-
-      currentLine++;
-      continue;
+  for (let i = 1; i < lines.length; i++) {
+    const currentLine = lines[i];
+    if (debug) {
+      console.warn(
+        "Line",
+        i,
+        "out of",
+        lines.length,
+        "\nCurrent commad/outupt:",
+        currentLine
+      );
     }
 
-    currentLine++;
+    switch (getLineType(currentLine)) {
+      case LineType.DIRECTORY: {
+        const directoryName = currentLine.split(" ")[1];
+        const directory: DirectoryType = {
+          name: directoryName,
+          size: 0,
+          type: ItemType.DIRECTORY,
+          path: mapObjectLocationToPath(directoryName, currentDirectory),
+          files: [],
+        };
+
+        currentDirectory.files.push(directory);
+        break;
+      }
+      case LineType.FILE: {
+        const [size, fileName] = currentLine.split(" ");
+        const file: FileType = {
+          name: fileName,
+          size: parseInt(size) || 0,
+          type: ItemType.FILE,
+          path: mapObjectLocationToPath(fileName, currentDirectory),
+        };
+
+        currentDirectory.files.push(file);
+        break;
+      }
+      case LineType.LIST_FILES: {
+        break;
+      }
+      case LineType.MOVE_UP: {
+        currentDirectory.size = currentDirectory.files.reduce(
+          (acc, file) => acc + file.size,
+          0
+        );
+        currentDirectory = getDirectoryFromPath(
+          currentDirectory.path,
+          root,
+          true
+        );
+        break;
+      }
+      case LineType.CHANGE_DIRECTORY: {
+        currentDirectory.size = currentDirectory.files.reduce(
+          (acc, file) => acc + file.size,
+          0
+        );
+        const directoryName = currentLine.split(" ")[2];
+        currentDirectory = getDirectoryFromPath(
+          mapObjectLocationToPath(directoryName, currentDirectory),
+          root
+        );
+        break;
+      }
+    }
   }
+
+  currentDirectory.size = currentDirectory.files.reduce(
+    (acc, file) => acc + file.size,
+    0
+  );
+
   return root;
 };
 
-const parseInput = (input: string): string[] => {
-  const lines = input.split("\n");
-  return lines;
-};
+const findAllDirectoriesWhichSizeSatisfies = (
+  root: DirectoryType,
+  compare: (x: number) => boolean
+): DirectoryType[] => {
+  let matchingDirectories: DirectoryType[] = [];
 
-const remapWholeNestedObjectWithoutProperty = (
-  obj: DirectoryType,
-  property: keyof DirectoryType
-): DirectoryType => {
-  const newObj = { ...obj };
-  delete newObj[property];
-  if (newObj?.files) {
-    newObj.files = newObj?.files.map((file) => {
-      //@ts-ignore
-      if (file?.files) {
-        return remapWholeNestedObjectWithoutProperty(file, property);
+  const findDirectories = (directory: DirectoryType) => {
+    if (compare(directory.size)) {
+      matchingDirectories.push(directory);
+    }
+
+    for (const file of directory.files) {
+      if (file.type === ItemType.DIRECTORY) {
+        findDirectories(file as DirectoryType);
       }
-      return file;
-    });
-  }
-  return newObj;
+    }
+  };
+
+  findDirectories(root);
+
+  return matchingDirectories;
 };
 
 function App() {
-  const lines = remapWholeNestedObjectWithoutProperty(
-    mapDirectoryStructure(parseInput(inputTxt)),
-    "parent"
+  const directoryStructure = mapDirectoryStructure(inputTxt);
+  const dirSizeAtLMost100000 = findAllDirectoriesWhichSizeSatisfies(
+    directoryStructure,
+    (x) => x <= 100000
   );
-  console.log(lines);
+  const smallDirsCombinedSize = dirSizeAtLMost100000.reduce(
+    (acc, dir) => acc + dir.size,
+    0
+  );
+  const wholeDirSize = directoryStructure.size;
+  const updateSize = 30000000;
+  const maxSize = 70000000;
+  const spaceMoreNeeded = Math.abs(maxSize - (wholeDirSize + updateSize));
+  const deleteFilesCandidates = findAllDirectoriesWhichSizeSatisfies(
+    directoryStructure,
+    (x) => x >= spaceMoreNeeded
+  );
+
+  deleteFilesCandidates.sort((a, b) => a.size - b.size);
+
+  console.log("Root structure:", directoryStructure);
+  console.log(
+    "Sum of sizes of directories under 100000:",
+    smallDirsCombinedSize
+  );
+  console.log("Root size:", wholeDirSize);
+  console.log("Nedded update more size for update:", spaceMoreNeeded);
+  console.log("You can delete files from:", deleteFilesCandidates);
+  console.log(
+    "Smallest directory to delete:",
+    deleteFilesCandidates[0],
+    "\nSize:",
+    deleteFilesCandidates[0].size
+  );
+
   return (
     <main className="App" style={{ whiteSpace: "pre", textAlign: "left" }}>
-      <code>{JSON.stringify(lines.files, null, "  ")}</code>
+      <code>{JSON.stringify(directoryStructure, null, "  ")}</code>
     </main>
   );
 }
